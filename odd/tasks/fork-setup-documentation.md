@@ -87,7 +87,7 @@ code changes, so no verification suite beyond the checks above applies.
 
 ## Progress
 
-- [x] T1 — Create branch `feature/bootstrap-local-setup` from `main`.
+- [x] T1 — Create branch `docs/fork-setup-documentation` from `main`.
 - [x] T2 — Create the fork, rewire remotes (`origin` → fork, `upstream` →
       harry0703), push `main`.
 - [x] T3 — Generate local `config.toml` with local-appropriate values.
@@ -95,6 +95,45 @@ code changes, so no verification suite beyond the checks above applies.
 - [x] T5 — Investigate the Codex image path and its billing model against current
       OpenAI documentation.
 - [x] T6 — Write the four `docs/` files.
+- [x] T7 — Open issue #1, label it `status:approved`, open PR #2 with the
+      `type:docs` label and `Closes #1`.
+
+## Delivery
+
+- Issue: `juanvs23/MoneyPrinterTurbo#1` — "Document fork setup, pipeline costs
+  and runtime resources", labelled `status:approved`.
+- Pull request: `juanvs23/MoneyPrinterTurbo#2`, `docs/fork-setup-documentation`
+  into `main`, labelled `type:docs`, state `MERGEABLE` / `CLEAN`.
+- The branch was renamed from `feature/bootstrap-local-setup` to
+  `docs/fork-setup-documentation` before pushing, because the `branch-pr` skill
+  requires the branch name to match
+  `^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)/[a-z0-9._-]+$`
+  and `feature/` is not in that list.
+
+## Repository settings changed on the fork
+
+- `has_issues` enabled. The fork inherited `has_issues=false` from the GitHub
+  fork creation, while upstream has issues enabled. Restoring parity was a
+  prerequisite for the issue-first pull request workflow.
+- Labels `status:approved` and `type:docs` created.
+
+## Open findings for the fork
+
+1. **Fork workflows are not registered with GitHub Actions.** The fork's
+   `main` contains `ci.yml`, `docker-ghcr.yml` and `security.yml`, but
+   `GET /actions/workflows` returns `total_count: 0` and
+   `gh workflow run ci.yml` fails with "not found on the default branch".
+   GitHub does not register fork workflows until they are enabled in the
+   repository's Actions tab. Until then, pull requests in this fork run no
+   automated checks.
+2. **`docker-ghcr.yml` hardcodes the upstream image name**:
+   `IMAGE_NAME: ghcr.io/harry0703/moneyprinterturbo`. The workflow triggers on
+   `push` to `main` with `paths-ignore: docs/**`, so it does not run for a
+   documentation-only merge. Any future code change merged into this fork's
+   `main` will attempt to publish to the upstream registry and fail. The
+   workflow must be repointed at `ghcr.io/juanvs23/moneyprinterturbo` before the
+   first code merge.
+
 
 ## Notes
 
