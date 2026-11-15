@@ -85,6 +85,27 @@ that the generic mapping already accepts.
 - The application was run against a real `.env` and reported the expected
   provider and API key.
 
+## Delivery
+
+- **Strategy:** `exception-ok`. The maintainer explicitly accepted a
+  `size:exception` on 2026-11-14 for the feature pull request.
+- **Chain:** two stacked pull requests. PR #2 (`docs/fork-setup-documentation`,
+  +718/-0, 5 files) is the documentation set and merges first. PR #4
+  (`feat/environment-overrides`, +1256/-6, 7 files) is this feature and merges
+  second, based on the PR #2 branch.
+- **Why PR #4 is not split:** the bulk is the test file, and the tests belong
+  with the behaviour they verify. Splitting the suite isolation from the
+  feature would leave an intermediate state in which the suite still rewrites
+  the developer's `config.toml`. The unit stays whole.
+- **Commits:** `0cadfc3` (the feature, with its tests and template) and
+  `b943e5a` (the local material source and the Pexels pause), plus the
+  delivery record in this document.
+- **Rollback boundary:** revert `app/config/env_overrides.py`,
+  `app/config/config.py`, `test/conftest.py`,
+  `test/services/test_env_overrides.py` and `.env.example`. That removes the
+  environment layer and the test isolation without touching the documentation
+  set from PR #2.
+
 ## Notes
 
 - The canonical naming keeps a prefixed form for every key, and the unprefixed
