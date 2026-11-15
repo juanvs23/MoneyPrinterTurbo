@@ -87,6 +87,104 @@ authentication is what protects it there. Every Compose file in this repository
 publishes on `127.0.0.1` only, so the service is not reachable from the network by
 default.
 
+## Environment overrides
+
+Every key in `config.toml` can also be supplied through an environment variable.
+This is the twelve-factor way to configure a deployment, and it keeps secrets out
+of the configuration file entirely.
+
+The file is `.env`, in the runtime root next to `config.toml`. It is excluded by
+`.gitignore` and must never be committed. Copy `.env.example` to get started.
+
+```sh
+cp .env.example .env
+```
+
+The runtime reads `.env` on startup, then applies the environment on top of
+`config.toml`. **The environment wins.**
+
+### Naming
+
+The canonical name is always prefixed, so it cannot collide with an unrelated
+variable of the host:
+
+| Configuration key | Environment variable |
+| --- | --- |
+| `log_level` | `MPT_LOG_LEVEL` |
+| `[app] gemini_api_key` | `MPT_APP_GEMINI_API_KEY` |
+| `[app] llm_provider` | `MPT_APP_LLM_PROVIDER` |
+| `[whisper] model` | `MPT_WHISPER_MODEL` |
+| `[azure] api_key` | `MPT_AZURE_API_KEY` |
+
+An unprefixed name is also accepted for provider-qualified keys, because the
+codebase already reads several variables that way: `GEMINI_API_KEY`,
+`PEXELS_API_KEYS`, `WHISPER_MODEL`. Inside the `[app]` section the unprefixed
+form is only accepted for provider-qualified keys; `MPT_APP_API_KEY` and
+`MPT_APP_TLS_VERIFY` always require the prefix, so a generic `API_KEY` in the
+host environment cannot silently change the server's own authentication.
+
+### Types
+
+The type follows the value in `config.toml`:
+
+| Kind | Example |
+| --- | --- |
+| List | `PEXELS_API_KEYS=key-1,key-2` |
+| Boolean | `MPT_APP_HIDE_CONFIG=true` (`1/0/true/false/yes/no/on/off`) |
+| Integer | `MPT_LISTEN_PORT=8080` |
+| String | `MPT_APP_LLM_PROVIDER=gemini` |
+
+A malformed value is reported in the log and ignored, so one typo does not stop
+the WebUI, the API and the CLI at once.
+
+### Precedence and persistence
+
+1. A real environment variable wins over the `.env` file.
+2. The environment wins over `config.toml`.
+3. **Values supplied through the environment are never written back to
+   `config.toml`.** `save_config` removes them from the serialized file, so a
+   secret that lives in `.env` stays there. The in-memory configuration keeps
+   the value for the running process.
+
+This is why a secret can be moved out of `config.toml` entirely: set it in
+`.env`, clear it in the file, and the application behaves identically.
+
+### Docker
+
+`MPT_HOME` selects the runtime root. Inside a container the `.env` file does not
+have to be mounted: the compose file can pass the variables directly.
+
+```yaml
+services:
+  api:
+    env_file:
+      - .env
+```
+
+### Pointing the model at Google
+
+`gemini` is a registered LLM provider (`app/models/llm_provider.py:311`).
+
+```sh
+MPT_APP_LLM_PROVIDER=gemini
+MPT_APP_GEMINI_API_KEY=<key from https://aistudio.google.com/app/apikey>
+```
+
+The default model is `gemini-3.1-pro-preview`; override it with
+`MPT_APP_GEMINI_MODEL_NAME`. The provider needs no base URL, and the
+`google-genai` SDK is already a dependency.
+
+### Running the test suite
+
+The suite is isolated from the local configuration: `test/conftest.py` points
+`MPT_HOME` at a temporary directory, neutralizes the `.env` file and resets the
+API key. Running the tests therefore never rewrites `config.toml` and never
+writes into the repository `storage/` directory.
+
+Without that isolation the WebUI, which `test/services/test_webui_startup.py`
+starts in a subprocess, would save its own configuration over the developer's
+`config.toml` on every test run.
+
 ### Credentials required for a first render
 
 Exactly two credentials block a complete first video:
