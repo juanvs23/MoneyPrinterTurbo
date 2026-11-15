@@ -12,6 +12,13 @@ import toml
 from loguru import logger
 
 from app import __version__, paths
+from app.config.env_overrides import (
+    ENV_FILE_VARIABLE,
+    EnvOverride,
+    apply_env_file_to_environ,
+    collect_env_overrides,
+    without_env_overrides,
+)
 
 root_dir = str(paths.runtime_root())
 config_file = f"{root_dir}/config.toml"
@@ -622,7 +629,12 @@ def save_config():
         config_to_save["voxcpm"] = dict(voxcpm)
         config_to_save["ui"] = dict(ui)
         config_to_save["diagnostics"] = dict(diagnostics)
-        serialized_config = toml.dumps(config_to_save, encoder=_ConfigTomlEncoder())
+        # Values owned by the environment are removed before serializing, so a
+        # secret supplied through the environment is never written to the file.
+        # The in-memory configuration keeps them, which is why the unfiltered
+        # copy is still the one that syncs back into _cfg below.
+        file_config = without_env_overrides(config_to_save, _env_overrides)
+        serialized_config = toml.dumps(file_config, encoder=_ConfigTomlEncoder())
 
         # WebUI 完整 rerun 结束时会调用保存。内容没有变化时直接返回，避免每次
         # 点击普通控件都产生一次磁盘写入和 fsync。
@@ -701,6 +713,81 @@ project_description = _cfg.get(
 )
 project_version = _cfg.get("project_version", __version__)
 reload_debug = False
+
+
+# ---------------------------------------------------------------------------
+# Environment overrides
+# ---------------------------------------------------------------------------
+
+_env_overrides: list[EnvOverride] = []
+
+_LIVE_SECTIONS = {
+    "app": app,
+    "diagnostics": diagnostics,
+    "whisper": whisper,
+    "proxy": proxy,
+    "azure": azure,
+    "siliconflow": siliconflow,
+    "minimax_tts": minimax_tts,
+    "elevenlabs": elevenlabs,
+    "chatterbox": chatterbox,
+    "kokoro": kokoro,
+    "fish_audio": fish_audio,
+    "voxcpm": voxcpm,
+    "ui": ui,
+}
+
+
+def _environment_file() -> str:
+    """Return the .env file to load, honouring the MPT_ENV_FILE override."""
+
+    configured = os.environ.get(ENV_FILE_VARIABLE, "").strip()
+    if configured:
+        return os.path.expanduser(configured)
+    return os.path.join(root_dir, ".env")
+
+
+def _apply_environment_overrides() -> None:
+    """Apply environment variables on top of the configuration file.
+
+    Values from the environment win over config.toml. They are written to the
+    in-memory configuration only; save_config removes them from the serialized
+    file, so a secret supplied through the environment never reaches the disk.
+
+    A malformed value is reported and skipped instead of stopping the
+    application, which keeps a typo in one variable from taking down the
+    WebUI, the API and the CLI at once.
+    """
+
+    global _env_overrides
+
+    apply_env_file_to_environ(_environment_file())
+    overrides, errors = collect_env_overrides(_cfg, os.environ)
+    for error in errors:
+        logger.error(f"invalid environment override ignored: {error}")
+    if not overrides:
+        return
+
+    for override in overrides:
+        if override.section is None:
+            _cfg[override.key] = override.value
+            globals()[override.key] = override.value
+            continue
+        section = _cfg.get(override.section)
+        if isinstance(section, dict):
+            section[override.key] = override.value
+        live = _LIVE_SECTIONS.get(override.section)
+        if live is not None:
+            live[override.key] = override.value
+
+    _env_overrides = overrides
+    logger.info(
+        "environment overrides active: "
+        + ", ".join(sorted(override.env_name for override in overrides))
+    )
+
+
+_apply_environment_overrides()
 
 app["redis_host"] = os.getenv(
     "MPT_APP_REDIS_HOST",

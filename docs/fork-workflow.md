@@ -77,8 +77,8 @@ Generated locally with these deviations from the example:
 | `log_level` | `INFO` | The example ships `DEBUG`, which is noisy for normal operation. |
 | `api_key` | 32 hex characters, randomly generated | Enables authentication for `/api/v1` and `/tasks`. |
 | `listen_host` | `0.0.0.0` | Required inside a container: the port is published to the host separately. |
-| `llm_provider` | `moonshot` | Upstream default. |
-| `video_source` | `pexels` | Upstream default. Requires a Pexels key. |
+| `llm_provider` | `gemini` | Set through the environment. Google Gemini writes the script. |
+| `video_source` | `local` | Set through the environment. Uses your own footage, with no API key and no per-video cost. |
 | `subtitle_provider` | `edge` | Edge TTS needs no account and no key. |
 
 `listen_host = "0.0.0.0"` and `api_key` are a deliberate pair: the service must
@@ -87,20 +87,122 @@ authentication is what protects it there. Every Compose file in this repository
 publishes on `127.0.0.1` only, so the service is not reachable from the network by
 default.
 
+## Environment overrides
+
+Every key in `config.toml` can also be supplied through an environment variable.
+This is the twelve-factor way to configure a deployment, and it keeps secrets out
+of the configuration file entirely.
+
+The file is `.env`, in the runtime root next to `config.toml`. It is excluded by
+`.gitignore` and must never be committed. Copy `.env.example` to get started.
+
+```sh
+cp .env.example .env
+```
+
+The runtime reads `.env` on startup, then applies the environment on top of
+`config.toml`. **The environment wins.**
+
+### Naming
+
+The canonical name is always prefixed, so it cannot collide with an unrelated
+variable of the host:
+
+| Configuration key | Environment variable |
+| --- | --- |
+| `log_level` | `MPT_LOG_LEVEL` |
+| `[app] gemini_api_key` | `MPT_APP_GEMINI_API_KEY` |
+| `[app] llm_provider` | `MPT_APP_LLM_PROVIDER` |
+| `[whisper] model` | `MPT_WHISPER_MODEL` |
+| `[azure] api_key` | `MPT_AZURE_API_KEY` |
+
+An unprefixed name is also accepted for provider-qualified keys, because the
+codebase already reads several variables that way: `GEMINI_API_KEY`,
+`PEXELS_API_KEYS`, `WHISPER_MODEL`. Inside the `[app]` section the unprefixed
+form is only accepted for provider-qualified keys; `MPT_APP_API_KEY` and
+`MPT_APP_TLS_VERIFY` always require the prefix, so a generic `API_KEY` in the
+host environment cannot silently change the server's own authentication.
+
+### Types
+
+The type follows the value in `config.toml`:
+
+| Kind | Example |
+| --- | --- |
+| List | `PEXELS_API_KEYS=key-1,key-2` |
+| Boolean | `MPT_APP_HIDE_CONFIG=true` (`1/0/true/false/yes/no/on/off`) |
+| Integer | `MPT_LISTEN_PORT=8080` |
+| String | `MPT_APP_LLM_PROVIDER=gemini` |
+
+A malformed value is reported in the log and ignored, so one typo does not stop
+the WebUI, the API and the CLI at once.
+
+### Precedence and persistence
+
+1. A real environment variable wins over the `.env` file.
+2. The environment wins over `config.toml`.
+3. **Values supplied through the environment are never written back to
+   `config.toml`.** `save_config` removes them from the serialized file, so a
+   secret that lives in `.env` stays there. The in-memory configuration keeps
+   the value for the running process.
+
+This is why a secret can be moved out of `config.toml` entirely: set it in
+`.env`, clear it in the file, and the application behaves identically.
+
+### Docker
+
+`MPT_HOME` selects the runtime root. Inside a container the `.env` file does not
+have to be mounted: the compose file can pass the variables directly.
+
+```yaml
+services:
+  api:
+    env_file:
+      - .env
+```
+
+### Pointing the model at Google
+
+`gemini` is a registered LLM provider (`app/models/llm_provider.py:312`).
+
+```sh
+MPT_APP_LLM_PROVIDER=gemini
+MPT_APP_GEMINI_API_KEY=<key from https://aistudio.google.com/app/apikey>
+```
+
+The default model is `gemini-3.1-pro-preview`; override it with
+`MPT_APP_GEMINI_MODEL_NAME`. The provider needs no base URL, and the
+`google-genai` SDK is already a dependency.
+
+### Running the test suite
+
+The suite is isolated from the local configuration: `test/conftest.py` points
+`MPT_HOME` at a temporary directory, neutralizes the `.env` file and resets the
+API key. Running the tests therefore never rewrites `config.toml` and never
+writes into the repository `storage/` directory.
+
+Without that isolation the WebUI, which `test/services/test_webui_startup.py`
+starts in a subprocess, would save its own configuration over the developer's
+`config.toml` on every test run.
+
 ### Credentials required for a first render
 
-Exactly two credentials block a complete first video:
+Exactly one credential blocks a complete first video:
 
 | Credential | Used for | Where to get it |
 | --- | --- | --- |
-| `moonshot_api_key` | Script and search-keyword generation | <https://platform.kimi.com> |
-| `pexels_api_keys` | Stock footage search | <https://www.pexels.com/api/> |
+| `gemini_api_key` | Script generation | <https://aistudio.google.com/app/apikey> |
+
+The material comes from your own footage, so there is no stock-footage key to
+obtain. Pexels is no longer an option for new keys: it paused their issuance
+on 2026-09-30 without a reopening date.
 
 Everything else in the default path works without any credential:
 
 - **Narration**: Edge TTS is free and requires no registration.
 - **Subtitles**: Edge timings, or Whisper locally (see
   [Runtime Resources](runtime-resources.md) for the Whisper caveats).
+- **Material**: your own files in `storage/local_videos`.
 - **Composition, muxing and MP4 export**: local, via MoviePy and FFmpeg.
 
 ### Paths that need no key at all
@@ -114,6 +216,61 @@ These are the options to prefer when the objective is zero marginal cost:
 | LLM provider | Ollama, OpenAI Codex, Claude Code | `llm_provider` in the registry (`app/models/llm_provider.py:195`). |
 | Material | Your own footage | `video_source = "local"`. |
 | Music | Bundled tracks | `bgm_type = "random"`. |
+
+## Material source
+
+`MPT_APP_VIDEO_SOURCE=local` uses your own footage. It is the only source that
+needs no API key, no account and no per-video cost, and it is what this fork is
+configured with.
+
+### Where the files go
+
+The material directory is `local_videos` inside the runtime root:
+
+```
+storage/local_videos/     # source checkout
+```
+
+Two ways to fill it:
+
+- Copy the files there directly.
+- Upload them from the WebUI material picker, which posts them to the
+  `/video_materials` endpoint (`app/controllers/v1/video.py:479`). The endpoint
+  stores each upload under a UUID name and lists the directory back through
+  `GET /video_materials` (`app/controllers/v1/video.py:448`).
+
+The CLI takes the directory directly: `--video-materials <dir>`.
+
+### What the pipeline accepts
+
+| Rule | Value | Source |
+| --- | --- | --- |
+| Video formats | `.mp4` `.mov` `.avi` `.flv` `.mkv` `.webm` | `app/services/material_upload.py:25` |
+| Image formats | `.jpg` `.jpeg` `.png` `.bmp` | `app/services/material_upload.py:26` |
+| Minimum resolution | 480px on the shorter side, 470px with the tolerance | `app/services/video.py:85` |
+| Maximum upload size | 200 MB per video, 20 MB per image | `app/services/material_upload.py:17` |
+
+Files outside `local_videos` are rejected by design: the material path comes
+from the task parameters, and the renderer resolves it inside that directory
+only (`app/services/video.py:2141`). A file that fails the resolution check is
+skipped with a warning instead of failing the whole task.
+
+Images are rendered as a slow zoom clip (`app/services/video.py:2063`), so a
+folder of stills is a valid material source too.
+
+### What changes with `local`
+
+The LLM only writes the script. Search-keyword generation is skipped entirely
+(`app/services/task.py:1756`), because there is nothing to search for: the
+material is already yours.
+
+### Stock alternatives
+
+| Source | Key | Free tier | Notes |
+| --- | --- | --- | --- |
+| `coverr` | <https://coverr.co/developers> | 50 calls/hour | Key issued instantly, no credit card. Filters vertical footage natively (`is_vertical:true`). |
+| `pixabay` | <https://pixabay.com/api/docs/> | 100 requests/minute | Responses must be cached for 24 hours; the runtime already caches every stock search for exactly that long (`app/services/material_cache.py:24`). |
+| `pexels` | — | — | **Paused.** Pexels stopped issuing new API keys on 2026-09-30, with no reopening date. Keys issued before that date keep working. |
 
 ## Authentication behaviour
 
