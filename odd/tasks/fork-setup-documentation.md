@@ -126,6 +126,10 @@ code changes, so no verification suite beyond the checks above applies.
    GitHub does not register fork workflows until they are enabled in the
    repository's Actions tab. Until then, pull requests in this fork run no
    automated checks.
+
+   **Resolved on 2026-11-14.** `gh workflow list` now reports the `CI`
+   workflow as `active`, and a run started automatically on pull request #6.
+   The workflows are registered and the checks execute.
 2. **`docker-ghcr.yml` hardcodes the upstream image name**:
    `IMAGE_NAME: ghcr.io/harry0703/moneyprinterturbo`. The workflow triggers on
    `push` to `main` with `paths-ignore: docs/**`, so it does not run for a
@@ -133,6 +137,11 @@ code changes, so no verification suite beyond the checks above applies.
    `main` will attempt to publish to the upstream registry and fail. The
    workflow must be repointed at `ghcr.io/juanvs23/moneyprinterturbo` before the
    first code merge.
+
+   **Resolved on 2026-11-14 by pull request #6**, which repoints `IMAGE_NAME`
+   at `ghcr.io/juanvs23/moneyprinterturbo`. That pull request must be merged
+   before the feature pull request lands on `main`, so the publish run that the
+   feature merge triggers already has the correct target.
 
 
 ## Notes
