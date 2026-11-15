@@ -94,3 +94,13 @@ that the generic mapping already accepts.
 - `MPT_HOME` selects the runtime root. The test session points it at a
   temporary directory, which isolates the configuration file, the storage
   directory and the WebUI subprocess at the same time.
+- The configured material source is `local`. Pexels paused the issuance of new
+  API keys on 2026-09-30 without a reopening date, so the stock source that
+  the upstream default points at cannot be used by a new installation. `local`
+  needs no key, no account and no per-video cost, and it keeps the pipeline on
+  the LLM only: the search-keyword generation is skipped for it
+  (`app/services/task.py:1756`).
+- Coverr and Pixabay still issue keys and remain configured as the stock
+  alternatives. The runtime caches every stock search for 24 hours
+  (`app/services/material_cache.py:24`), which already satisfies the Pixabay
+  caching clause.

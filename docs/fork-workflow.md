@@ -77,8 +77,8 @@ Generated locally with these deviations from the example:
 | `log_level` | `INFO` | The example ships `DEBUG`, which is noisy for normal operation. |
 | `api_key` | 32 hex characters, randomly generated | Enables authentication for `/api/v1` and `/tasks`. |
 | `listen_host` | `0.0.0.0` | Required inside a container: the port is published to the host separately. |
-| `llm_provider` | `moonshot` | Upstream default. |
-| `video_source` | `pexels` | Upstream default. Requires a Pexels key. |
+| `llm_provider` | `gemini` | Set through the environment. Google Gemini writes the script. |
+| `video_source` | `local` | Set through the environment. Uses your own footage, with no API key and no per-video cost. |
 | `subtitle_provider` | `edge` | Edge TTS needs no account and no key. |
 
 `listen_host = "0.0.0.0"` and `api_key` are a deliberate pair: the service must
@@ -163,7 +163,7 @@ services:
 
 ### Pointing the model at Google
 
-`gemini` is a registered LLM provider (`app/models/llm_provider.py:311`).
+`gemini` is a registered LLM provider (`app/models/llm_provider.py:312`).
 
 ```sh
 MPT_APP_LLM_PROVIDER=gemini
@@ -187,18 +187,22 @@ starts in a subprocess, would save its own configuration over the developer's
 
 ### Credentials required for a first render
 
-Exactly two credentials block a complete first video:
+Exactly one credential blocks a complete first video:
 
 | Credential | Used for | Where to get it |
 | --- | --- | --- |
-| `moonshot_api_key` | Script and search-keyword generation | <https://platform.kimi.com> |
-| `pexels_api_keys` | Stock footage search | <https://www.pexels.com/api/> |
+| `gemini_api_key` | Script generation | <https://aistudio.google.com/app/apikey> |
+
+The material comes from your own footage, so there is no stock-footage key to
+obtain. Pexels is no longer an option for new keys: it paused their issuance
+on 2026-09-30 without a reopening date.
 
 Everything else in the default path works without any credential:
 
 - **Narration**: Edge TTS is free and requires no registration.
 - **Subtitles**: Edge timings, or Whisper locally (see
   [Runtime Resources](runtime-resources.md) for the Whisper caveats).
+- **Material**: your own files in `storage/local_videos`.
 - **Composition, muxing and MP4 export**: local, via MoviePy and FFmpeg.
 
 ### Paths that need no key at all
@@ -212,6 +216,61 @@ These are the options to prefer when the objective is zero marginal cost:
 | LLM provider | Ollama, OpenAI Codex, Claude Code | `llm_provider` in the registry (`app/models/llm_provider.py:195`). |
 | Material | Your own footage | `video_source = "local"`. |
 | Music | Bundled tracks | `bgm_type = "random"`. |
+
+## Material source
+
+`MPT_APP_VIDEO_SOURCE=local` uses your own footage. It is the only source that
+needs no API key, no account and no per-video cost, and it is what this fork is
+configured with.
+
+### Where the files go
+
+The material directory is `local_videos` inside the runtime root:
+
+```
+storage/local_videos/     # source checkout
+```
+
+Two ways to fill it:
+
+- Copy the files there directly.
+- Upload them from the WebUI material picker, which posts them to the
+  `/video_materials` endpoint (`app/controllers/v1/video.py:479`). The endpoint
+  stores each upload under a UUID name and lists the directory back through
+  `GET /video_materials` (`app/controllers/v1/video.py:448`).
+
+The CLI takes the directory directly: `--video-materials <dir>`.
+
+### What the pipeline accepts
+
+| Rule | Value | Source |
+| --- | --- | --- |
+| Video formats | `.mp4` `.mov` `.avi` `.flv` `.mkv` `.webm` | `app/services/material_upload.py:25` |
+| Image formats | `.jpg` `.jpeg` `.png` `.bmp` | `app/services/material_upload.py:26` |
+| Minimum resolution | 480px on the shorter side, 470px with the tolerance | `app/services/video.py:85` |
+| Maximum upload size | 200 MB per video, 20 MB per image | `app/services/material_upload.py:17` |
+
+Files outside `local_videos` are rejected by design: the material path comes
+from the task parameters, and the renderer resolves it inside that directory
+only (`app/services/video.py:2141`). A file that fails the resolution check is
+skipped with a warning instead of failing the whole task.
+
+Images are rendered as a slow zoom clip (`app/services/video.py:2063`), so a
+folder of stills is a valid material source too.
+
+### What changes with `local`
+
+The LLM only writes the script. Search-keyword generation is skipped entirely
+(`app/services/task.py:1756`), because there is nothing to search for: the
+material is already yours.
+
+### Stock alternatives
+
+| Source | Key | Free tier | Notes |
+| --- | --- | --- | --- |
+| `coverr` | <https://coverr.co/developers> | 50 calls/hour | Key issued instantly, no credit card. Filters vertical footage natively (`is_vertical:true`). |
+| `pixabay` | <https://pixabay.com/api/docs/> | 100 requests/minute | Responses must be cached for 24 hours; the runtime already caches every stock search for exactly that long (`app/services/material_cache.py:24`). |
+| `pexels` | — | — | **Paused.** Pexels stopped issuing new API keys on 2026-09-30, with no reopening date. Keys issued before that date keep working. |
 
 ## Authentication behaviour
 
