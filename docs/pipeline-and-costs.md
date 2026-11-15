@@ -79,11 +79,18 @@ They fall into four families:
 `/v1/photos` endpoint is never used. The mental model of "Pexels gives me images"
 is wrong for this project: it gives clips.
 
+**Pexels paused the issuance of new API keys on 2026-09-30**, with no reopening
+date. The keys issued before that date keep working, but a new installation
+cannot obtain one, so the upstream default source is not a usable starting
+point. Coverr and Pixabay still issue keys: Coverr from its Profile page,
+instantly and without a credit card, and Pixabay from its API page.
+
 ### Your own footage
 
 `local`. Clips are taken from the local material directory. Zero cost, zero
 dependency on any third party, and the only family that produces material nobody
-else has.
+else has. It is also the only family that needs no API key at all, which makes
+it the source this fork is configured with.
 
 ### Generated video
 
@@ -175,7 +182,7 @@ footage or an `openai_image` endpoint you control.
 | **Script + keywords** (LLM) | Free with a local provider; otherwise per token | Short-circuited entirely if you supply the text. |
 | **Narration** (Edge TTS) | Free | No account, no key. |
 | **Subtitles** | Free with Edge timings | Whisper is local and free, but see the model download note in [Runtime Resources](runtime-resources.md). |
-| **Stock footage** (Pexels / Pixabay / Coverr) | Free within the free tier | Generic and shared with every other channel using it. |
+| **Stock footage** (Pixabay / Coverr) | Free within the free tier | Generic and shared with every other channel using it. Pexels is no longer available to new users. |
 | **Your own footage** (`local`) | Zero | The only source that is uniquely yours. |
 | **Generated video** (Seedance, OFox, ...) | Per generated clip | Full artistic control, metered cost. |
 | **Generated images** (`codex_image`) | Zero marginal, consumes the Codex allowance | Access not guaranteed. |
@@ -188,7 +195,7 @@ footage or an `openai_image` endpoint you control.
 | --- | --- |
 | Lowest risk, lowest cost | Own script + own footage (`local`) + Edge TTS. No third-party dependency at all beyond your own disk. |
 | Maximum control, zero marginal cost | Own script + `openai_image` pointed at a local ComfyUI/SD gateway + Edge TTS. |
-| Fastest to a first video | Own script + Pexels + Edge TTS. One key, no per-video cost, generic visuals. |
+| Fastest to a first video | Own script + `local` footage + Edge TTS. No key, no per-video cost, no third-party dependency. |
 | Highest visual quality, metered | Any text-to-video provider, billed per clip. |
 | Do not use for production | `codex_image` as the only material source. |
 
